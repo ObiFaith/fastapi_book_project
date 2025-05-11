@@ -1,87 +1,80 @@
-from fastapi import status, APIRouter
-from api.v1.schema.book import Book, BookUpdate
-from api.utils.responses import success_response, error_response
+from uuid import UUID
+from api.db.database import get_session
+from api.v1.services.book import BookService
+from fastapi import status, APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+from api.v1.schemas.book import Book, BookUpdate
+from api.utils.response import success_response, error_response
 
-book = APIRouter(prefix='/books', tags=['Book'])
+book = APIRouter(prefix="/books", tags=["Book"])
 
-books = {
-  1: Book(
-      year=2021,
-      genre='Business',
-      title='Good To Great',
-      author='Jim Collins',
-      publication='HarperCollins'
-    )
-}
 
-@book.get('/', response_model=list[Book])
-async def get_books():
-  """ Get all books """
-  data = [
-    {"id": book_id, **book.model_dump()} for book_id, book in books.items()
-  ]
-
-  return success_response(
-    data=data,
-    status_code=status.HTTP_200_OK,
-    message="Books retrieved successfully!",
-  )
-
-@book.get('/{book_id}', response_model=Book)
-async def get_book(book_id: int):
-  """ Get a book by id """
-  if book_id not in books:
-    error_response(
-      message="Book not found!",
-      status_code=status.HTTP_404_NOT_FOUND,
+@book.get("/")
+async def get_books(db: AsyncSession = Depends(get_session)):
+    """Get all books"""
+    data = await BookService.get_books(db)
+    return success_response(
+        data=data,
+        status_code=status.HTTP_200_OK,
+        message="Book(s) retrieved successfully!",
     )
 
-  book = books[book_id]
-  data = {"id": book_id, **book.model_dump()}
 
-  return success_response(
-    data=data,
-    status_code=status.HTTP_200_OK,
-    message="Book retrieved successfully!",
-  )
+@book.get("/{book_id}")
+async def get_book(book_id: UUID, db: AsyncSession = Depends(get_session)):
+    """Get a book by id"""
+    data = await BookService.get_book(db, book_id)
 
-@book.post('/', response_model=Book)
-async def create_book(book: Book):
-  """ Add a new book """
-  new_id = max(books.keys(), default=0) + 1
+    if data is None:
+        return error_response(
+            message="Book not found!",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
 
-  books[new_id] = book
-  data = {"id": new_id, **book.model_dump()}
-
-  return success_response(
-    data=data,
-    status_code=status.HTTP_201_CREATED,
-    message="Books retrieved successfully!",
-  )
-
-@book.put('/{book_id}', response_model=Book)
-async def update_book(book_id: int, book: BookUpdate):
-  if book_id not in books:
-    error_response(
-      message="Book not found!",
-      status_code=status.HTTP_404_NOT_FOUND,
+    return success_response(
+        data=data,
+        status_code=status.HTTP_200_OK,
+        message="Book retrieved successfully!",
     )
 
-  updated_book = book.model_dump(exclude_unset=True)
-  books[book_id] = books[book_id].model_copy(update=updated_book)
 
-  return success_response(
-    data=books[book_id],
-    status_code=status.HTTP_200_OK,
-    message="Book updated successfully!",
-  )
+@book.post("/")
+async def create_book(new_book: Book, db: AsyncSession = Depends(get_session)):
+    """Add a new book"""
+    data = await BookService.create_book(db, new_book)
 
-@book.delete('/{book_id}', status_code=status.HTTP_204_NO_CONTENT)
-async def delete_book(book_id: int):
-  if book_id not in books:
-    error_response(
-      message="Book not found!",
-      status_code=status.HTTP_404_NOT_FOUND,
+    return success_response(
+        data=data,
+        status_code=status.HTTP_201_CREATED,
+        message="Books retrieved successfully!",
     )
 
-  del books[book_id]
+
+@book.put("/{book_id}")
+async def update_book(
+    book_id: UUID, book: BookUpdate, db: AsyncSession = Depends(get_session)
+):
+    book = await BookService.update_book(db, book_id, book)
+
+    if book is None:
+        error_response(
+            message="Book not found!",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+
+    return success_response(
+        data=book,
+        status_code=status.HTTP_200_OK,
+        message="Book updated successfully!",
+    )
+
+
+@book.delete("/{book_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_book(book_id: UUID, db: AsyncSession = Depends(get_session)):
+    book = await BookService.delete_book(db, book_id)
+
+    if book is None:
+        return error_response(
+            message="Book not found!",
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
